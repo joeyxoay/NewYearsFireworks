@@ -1,108 +1,122 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  HandLandmarker,
-  FilesetResolver,
-  NormalizedLandmark,
-} from "@mediapipe/tasks-vision";
+import { useEffect, useRef, useState } from 'react';
+import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 export const useHandControl = () => {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [fingerCount, setFingerCount] = useState<number | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  
+  // We keep track of the loaded status in a ref to avoid re-triggering effects
+  const isModelLoaded = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const requestRef = useRef<number>();
 
   useEffect(() => {
-    let handLandmarker: HandLandmarker;
-    let animationFrameId: number;
+    let landmarker: HandLandmarker | null = null;
 
-    const setupMediaPipe = async () => {
-      // Load the WASM files
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-      );
+    const setup = async () => {
+      console.log("🚀 Starting Vision Setup...");
+      try {
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm"
+        );
 
-      // Initialize the Landmarker
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-      });
+        // --- CHANGE: Using CPU first to guarantee it works ---
+        landmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "CPU" 
+          },
+          runningMode: "VIDEO",
+          numHands: 1,
+          minHandDetectionConfidence: 0.3, // Super sensitive
+          minHandPresenceConfidence: 0.3,
+          minTrackingConfidence: 0.3
+        });
 
-      startWebcam();
-    };
+        console.log("✅ Model Loaded!");
+        isModelLoaded.current = true;
 
-    const startWebcam = async () => {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480 },
+        if (navigator.mediaDevices?.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { width: 640, height: 480 } 
           });
+          
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
-            videoRef.current.addEventListener("loadeddata", predictWebcam);
-            setIsLoaded(true);
+            // Force play just in case
+            videoRef.current.play(); 
+            
+            videoRef.current.addEventListener('loadeddata', () => {
+              console.log("📹 Camera Feed Ready");
+              setIsLoaded(true);
+              predict();
+            });
           }
-        } catch (err) {
-          console.error("Error accessing webcam:", err);
         }
+      } catch (error) {
+        console.error("❌ CRITICAL ERROR:", error);
       }
     };
 
-    const countFingers = (landmarks: NormalizedLandmark[], handedness: "Left" | "Right") => {
-      let count = 0;
-
-      // 1. Thumb Logic (X-axis comparison)
-      // Tip (4) vs IP Joint (3)
-      const thumbTip = landmarks[4];
-      const thumbIP = landmarks[3]; 
-      
-      // Note: Logic depends on if you are viewing mirrored video or not. 
-      // MediaPipe "Left" hand appears on the Left side of the screen in mirrored mode.
-      if (handedness === "Right") {
-        if (thumbTip.x < thumbIP.x) count++;
-      } else {
-        if (thumbTip.x > thumbIP.x) count++;
-      }
-
-      // 2. Fingers Logic (Y-axis comparison)
-      // If Tip Y is less than Pip Y, finger is UP (0,0 is top-left)
-      const fingerTips = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky
-      const fingerPips = [6, 10, 14, 18]; // Knuckles
-
-      fingerTips.forEach((tipIdx, i) => {
-        if (landmarks[tipIdx].y < landmarks[fingerPips[i]].y) {
-          count++;
+    const countFingers = (landmarks: any[], handedness: 'Left' | 'Right') => {
+        let count = 0;
+        const thumbTip = landmarks[4];
+        const thumbIp = landmarks[3];
+        
+        // Check Thumb (X-axis depends on hand)
+        if (handedness === 'Right') { 
+            if (thumbTip.x < thumbIp.x) count++;
+        } else {
+            if (thumbTip.x > thumbIp.x) count++;
         }
-      });
 
-      return count;
+        // Check Fingers (Y-axis: Tip must be higher than Pip)
+        // Note: Y=0 is top, so "Lower Value" means "Higher on Screen"
+        const tips = [8, 12, 16, 20];
+        const pips = [6, 10, 14, 18];
+
+        tips.forEach((tipIdx, i) => {
+            if (landmarks[tipIdx].y < landmarks[pips[i]].y) {
+                count++;
+            }
+        });
+        return count;
     };
 
-    const predictWebcam = () => {
-      if (videoRef.current && videoRef.current.videoWidth > 0) {
-        let startTimeMs = performance.now();
-        const results = handLandmarker.detectForVideo(videoRef.current, startTimeMs);
+    const predict = () => {
+      if (videoRef.current && landmarker && isModelLoaded.current) {
+        
+        // Only run if video is actually playing and has size
+        if (videoRef.current.currentTime > 0 && videoRef.current.videoWidth > 0) {
+            
+            try {
+                const result = landmarker.detectForVideo(videoRef.current, performance.now());
 
-        if (results.landmarks.length > 0) {
-          const landmarks = results.landmarks[0];
-          const handLabel = results.handedness[0][0].categoryName as "Left" | "Right";
-          const count = countFingers(landmarks, handLabel);
-          setFingerCount(count);
+                if (result.landmarks.length > 0) {
+                    // console.log("🖐 Hand Found!"); // Uncomment to spam console with success
+                    const hand = result.landmarks[0];
+                    const handedness = result.handedness[0][0].categoryName as 'Left' | 'Right';
+                    const count = countFingers(hand, handedness);
+                    setFingerCount(count);
+                } else {
+                    // console.log("... Searching ..."); 
+                    setFingerCount(null);
+                }
+            } catch (e) {
+                console.warn("Detection glitch:", e);
+            }
         }
-        // If no hand is detected, we keep the last known state or could set to null
       }
-      animationFrameId = requestAnimationFrame(predictWebcam);
+      requestRef.current = requestAnimationFrame(predict);
     };
 
-    setupMediaPipe();
+    setup();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
-      handLandmarker?.close();
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (landmarker) landmarker.close();
     };
   }, []);
 
-  return { videoRef, fingerCount, isLoaded };
+  return { fingerCount, videoRef, isLoaded };
 };

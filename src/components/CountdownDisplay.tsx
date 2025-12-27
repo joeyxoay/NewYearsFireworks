@@ -1,57 +1,47 @@
-import { Text } from "@react-three/drei";
-import { useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import React, { useRef } from 'react';
+import { Text } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 
-interface Props {
-  value: string | number;
-  isCelebration: boolean;
-}
+export const CountdownDisplay = ({ count, isFireworks }: { count: number | null, isFireworks: boolean }) => {
+  const textRef = useRef<any>();
 
-export const CountdownDisplay = ({ value, isCelebration }: Props) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textRef = useRef<any>(null);
-  
   useFrame((state) => {
     if (textRef.current) {
-      const time = state.clock.getElapsedTime();
+      const t = state.clock.elapsedTime;
+      // Gentle float
+      textRef.current.position.y = Math.sin(t) * 0.5 + 4;
       
-      // Float up and down (Gentle float)
-      textRef.current.position.y = Math.sin(time) * 0.1 + 1;
-      
-      // Pulse scale (Much more subtle now)
-      // Normal size = 1.0, Celebration size = 1.5
-      const scaleBase = isCelebration ? 1.5 : 1.0;
-      const pulseSpeed = isCelebration ? 10 : 3;
-      
-      // Adds a small heartbeat effect (+/- 0.05 scale)
-      const pulse = Math.sin(time * pulseSpeed) * 0.05 + scaleBase;
-      
-      textRef.current.scale.set(pulse, pulse, pulse);
+      // Pop effect logic
+      const targetScale = 1; 
+      // Smoothly interpolate current scale to target scale
+      textRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
     }
   });
 
-  const color = isCelebration ? "#FFD700" : "#00FFFF"; // Gold or Neon Blue
+  // --- THE FIX ---
+  // If no hand is detected (count is null) AND no fireworks, render nothing.
+  if (count === null && !isFireworks) return null;
+
+  const display = isFireworks ? "2026" : count?.toString();
+  const color = isFireworks ? "#D4AF37" : "#FFFFFF";
 
   return (
     <Text
       ref={textRef}
       font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff"
-      fontSize={2.5} // Reduced from 5 to 2.5
-      position={[0, 1, 0]}
-      maxWidth={10} // Reduced width constraint
+      fontSize={6}
+      maxWidth={20}
       lineHeight={1}
       letterSpacing={0.02}
       textAlign="center"
       anchorX="center"
       anchorY="middle"
+      outlineWidth={0.2}
+      outlineColor={isFireworks ? "#D4AF37" : "#00FFFF"}
     >
-      {value}
-      <meshStandardMaterial 
-        color={color} 
-        emissive={color} 
-        emissiveIntensity={isCelebration ? 2 : 1.5} 
-        toneMapped={false} 
-      />
+      {display}
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} toneMapped={false} />
     </Text>
   );
 };

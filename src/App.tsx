@@ -1,135 +1,74 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { 
-  OrbitControls, 
-  MeshReflectorMaterial, 
-  Environment, 
-  PerspectiveCamera 
-} from '@react-three/drei';
+import { PerspectiveCamera, Environment, Stars, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+import * as THREE from 'three';
 
 import { useHandControl } from './hooks/useHandControl';
 import { CountdownDisplay } from './components/CountdownDisplay';
 import { Fireworks } from './components/Fireworks';
+import { Snow } from './components/Snow'; // Import Snow
+import { WebcamFeed } from './components/WebcamFeed';
 
-export default function App() {
-  const { videoRef, fingerCount, isLoaded } = useHandControl();
-  const [displayValue, setDisplayValue] = useState<string>("WAITING");
+const Scene = ({ fingerCount }: { fingerCount: number | null }) => {
   const [celebrate, setCelebrate] = useState(false);
 
-  // --- Logic Loop ---
   useEffect(() => {
-    // If MediaPipe hasn't found a hand yet
-    if (fingerCount === null) {
-        setDisplayValue("SHOW HAND");
-        return;
-    }
-
-    // Once celebration triggers, lock it
-    if (celebrate) {
-        setDisplayValue("2026");
-        return;
-    }
-
-    // Trigger celebration on Fist (0 fingers)
-    if (fingerCount === 0) {
-        setCelebrate(true);
-    } else {
-        setDisplayValue(fingerCount.toString());
-    }
-  }, [fingerCount, celebrate]);
+    if (fingerCount === 0) setCelebrate(true);
+    if (fingerCount === 5) setCelebrate(false);
+  }, [fingerCount]);
 
   return (
     <>
-      {/* 1. HTML Overlay: Hidden Video for Computer Vision */}
-      <video
-        ref={videoRef}
-        style={{
-          position: 'absolute',
-          top: 10,
-          left: 10,
-          width: '160px',
-          height: '120px',
-          zIndex: 10,
-          borderRadius: '8px',
-          opacity: 0.8,
-          transform: 'scaleX(-1)', // Mirror preview for user feel
-          objectFit: 'cover'
-        }}
-        autoPlay
-        playsInline
-        muted
-      />
+      <PerspectiveCamera makeDefault position={[0, 2, 18]} fov={45} />
+      <ambientLight intensity={0.5} />
+      
+      <Environment preset="city" background={false} />
+      <color attach="background" args={['#050505']} />
+      
+      {/* BACKGROUND ELEMENTS */}
+      <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+      <Snow /> {/* Added Snow Here */}
 
-      {/* Loading Indicator */}
-      {!isLoaded && (
-        <div style={{ 
-          position: 'absolute', 
-          top: '50%', 
-          left: '50%', 
-          transform: 'translate(-50%, -50%)', 
-          color: '#00FFFF', 
-          fontFamily: 'sans-serif',
-          zIndex: 20,
-          textTransform: 'uppercase',
-          letterSpacing: '2px'
-        }}>
-          Initializing Vision Engine...
-        </div>
-      )}
-
-      {/* 2. The 3D Scene */}
-      <Canvas dpr={[1, 2]}>
-        <PerspectiveCamera makeDefault position={[0, 2, 8]} fov={50} />
-        
-        {/* Lights */}
-        <ambientLight intensity={0.5} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={10} color="#ff00ff" />
-        <pointLight position={[-10, 5, -10]} intensity={10} color="#00ffff" />
-
-        {/* Content Group */}
-        <group position={[0, 0, 0]}>
-          <CountdownDisplay value={displayValue} isCelebration={celebrate} />
-          <Fireworks active={celebrate} />
+      <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+        <group>
+          <CountdownDisplay count={fingerCount} isFireworks={celebrate} />
         </group>
+      </Float>
 
-        {/* Reflective Cyberpunk Floor */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -2, 0]}>
-          <planeGeometry args={[50, 50]} />
-          <MeshReflectorMaterial
-            blur={[300, 100]}
-            resolution={1024}
-            mixBlur={1}
-            mixStrength={80}
-            roughness={0.1}
-            depthScale={1.2}
-            minDepthThreshold={0.4}
-            maxDepthThreshold={1.4}
-            color="#050505"
-            metalness={0.9}
-            mirror={1} 
-          />
-        </mesh>
+      <Fireworks active={celebrate} />
 
-        {/* Post Processing Effects */}
-        <EffectComposer disableNormalPass>
-          {/* Intense Bloom for the Neon look */}
-          <Bloom luminanceThreshold={1} mipmapBlur intensity={1.5} radius={0.4} />
-          
-          {/* @ts-ignore: Typings mismatch in library, safe to ignore */}
-          <Vignette eskil={false} offset={0.1} darkness={1.1} />
-        </EffectComposer>
+      {/* Floor */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -8, 0]}>
+        <planeGeometry args={[100, 100]} />
+        <meshStandardMaterial color="#050505" roughness={0.1} metalness={0.8} />
+      </mesh>
 
-        {/* Background Environment (City Night) */}
-        <Environment preset="city" />
-        
-        {/* Camera Controls */}
-        <OrbitControls 
-          enableZoom={false} 
-          enablePan={false} 
-          maxPolarAngle={Math.PI / 2} // Prevent going below floor
-        />
-      </Canvas>
+      <EffectComposer>
+        <Bloom luminanceThreshold={0.5} mipmapBlur intensity={2.0} radius={0.6} />
+        <Vignette eskil={false} offset={0.1} darkness={1.1} />
+      </EffectComposer>
     </>
+  );
+};
+
+export default function App() {
+  const { fingerCount, videoRef, isLoaded } = useHandControl();
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', background: '#000' }}>
+      <Canvas gl={{ toneMapping: THREE.ReinhardToneMapping }}>
+        <Scene fingerCount={fingerCount} />
+      </Canvas>
+      <WebcamFeed videoRef={videoRef} isLoaded={isLoaded} />
+      
+      {/* Subtle UI Instructions */}
+      <div style={{ 
+        position: 'absolute', bottom: '30px', width: '100%', textAlign: 'center', 
+        color: 'rgba(255,255,255,0.3)', fontFamily: 'sans-serif', fontSize: '0.8rem', letterSpacing: '2px' 
+      }}>
+        {fingerCount === null ? "RAISE HAND TO START" : "MAKE A FIST FOR FIREWORKS"}
+      </div>
+    </div>
   );
 }

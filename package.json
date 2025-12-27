@@ -1,7 +1,7 @@
 {
-  "name": "new-years-fireworks",
+  "name": "particle-countdown",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.160.0",
+    "three-stdlib": "^2.29.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
