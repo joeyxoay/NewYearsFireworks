@@ -5,39 +5,66 @@ export const WebcamFeed = ({ videoRef, isLoaded }: any) => {
 
   return (
     <div 
-      className="absolute top-6 right-6 z-50 flex items-center justify-center transition-all duration-500"
+      className="webcam-container"
+      style={{
+        position: 'absolute',
+        top: '20px',
+        left: '20px',
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 0.5s ease',
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       <div 
         style={{
-          width: isHovered ? '160px' : '12px',
-          height: isHovered ? '120px' : '12px',
-          borderRadius: isHovered ? '10px' : '50%',
-          border: '1px solid #D4AF37',
+          width: isHovered ? '240px' : '160px', // Expands when you look at it
+          height: isHovered ? '180px' : '120px',
+          borderRadius: '12px',
+          border: '1px solid rgba(212, 175, 55, 0.5)', // Gold border
           overflow: 'hidden',
           background: '#000',
+          boxShadow: isHovered ? '0 0 20px rgba(212, 175, 55, 0.3)' : '0 0 10px rgba(0,0,0,0.5)',
           transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          boxShadow: isHovered ? '0 10px 30px rgba(0,0,0,0.5)' : '0 0 10px #D4AF37',
           position: 'relative'
         }}
       >
+        {/* The Video Element */}
         <video
           ref={videoRef}
           style={{
-            width: '100%', height: '100%', objectFit: 'cover',
-            transform: 'scaleX(-1)', opacity: isHovered ? 0.8 : 0
+            width: '100%', 
+            height: '100%', 
+            objectFit: 'cover',
+            transform: 'scaleX(-1)', // Mirror effect so movement feels natural
+            opacity: isLoaded ? 0.8 : 0 // Fade in when ready
           }}
           playsInline
           muted
         />
         
-        {/* The Dot Indicator (Only visible when not hovered) */}
-        {!isHovered && (
-          <div style={{ 
-            width: '100%', height: '100%', background: isLoaded ? '#D4AF37' : '#333',
-            animation: isLoaded ? 'pulse 2s infinite' : 'none'
-          }} />
+        {/* Status Indicator (Red dot if loading, Green dot if active) */}
+        <div style={{
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: isLoaded ? '#00FF00' : '#FF0000',
+          boxShadow: isLoaded ? '0 0 5px #00FF00' : 'none'
+        }} />
+        
+        {!isLoaded && (
+           <div style={{
+             position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+             color: '#D4AF37', fontFamily: 'monospace', fontSize: '10px'
+           }}>
+             INITIALIZING...
+           </div>
         )}
       </div>
     </div>

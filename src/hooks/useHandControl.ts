@@ -1,60 +1,63 @@
 import { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
+// Settings for shake detection
+const SHAKE_HISTORY_LENGTH = 15; 
+const SHAKE_THRESHOLD = 0.15;    
+
 export const useHandControl = () => {
   const [fingerCount, setFingerCount] = useState<number | null>(null);
+  const [isShaking, setIsShaking] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   
-  // We keep track of the loaded status in a ref to avoid re-triggering effects
-  const isModelLoaded = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestRef = useRef<number>();
+  const wristXHistory = useRef<number[]>([]);
+  const landmarkerRef = useRef<HandLandmarker | null>(null);
 
   useEffect(() => {
-    let landmarker: HandLandmarker | null = null;
-
     const setup = async () => {
-      console.log("🚀 Starting Vision Setup...");
+      console.log("🚀 Starting Vision (Safe Mode)...");
       try {
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm"
         );
 
-        // --- CHANGE: Using CPU first to guarantee it works ---
-        landmarker = await HandLandmarker.createFromOptions(vision, {
+        // FORCE CPU DELEGATE: This prevents the 3D graphics from killing the Vision process
+        landmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
             delegate: "CPU" 
           },
           runningMode: "VIDEO",
           numHands: 1,
-          minHandDetectionConfidence: 0.3, // Super sensitive
-          minHandPresenceConfidence: 0.3,
-          minTrackingConfidence: 0.3
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5
         });
 
-        console.log("✅ Model Loaded!");
-        isModelLoaded.current = true;
+        console.log("✅ Model Ready");
 
         if (navigator.mediaDevices?.getUserMedia) {
+          // Request specific low-res video to save processing power
           const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { width: 640, height: 480 } 
+            video: { width: 640, height: 480, frameRate: 30 } 
           });
           
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
-            // Force play just in case
-            videoRef.current.play(); 
+            // Force play and wait for it to actually start
+            await videoRef.current.play();
             
             videoRef.current.addEventListener('loadeddata', () => {
-              console.log("📹 Camera Feed Ready");
+              console.log("📹 Camera Feed Active");
               setIsLoaded(true);
               predict();
             });
           }
         }
       } catch (error) {
-        console.error("❌ CRITICAL ERROR:", error);
+        console.error("❌ CRITICAL VISION ERROR:", error);
       }
     };
 
@@ -63,49 +66,61 @@ export const useHandControl = () => {
         const thumbTip = landmarks[4];
         const thumbIp = landmarks[3];
         
-        // Check Thumb (X-axis depends on hand)
         if (handedness === 'Right') { 
             if (thumbTip.x < thumbIp.x) count++;
         } else {
             if (thumbTip.x > thumbIp.x) count++;
         }
 
-        // Check Fingers (Y-axis: Tip must be higher than Pip)
-        // Note: Y=0 is top, so "Lower Value" means "Higher on Screen"
         const tips = [8, 12, 16, 20];
         const pips = [6, 10, 14, 18];
-
         tips.forEach((tipIdx, i) => {
-            if (landmarks[tipIdx].y < landmarks[pips[i]].y) {
-                count++;
-            }
+            if (landmarks[tipIdx].y < landmarks[pips[i]].y) count++;
         });
         return count;
     };
 
     const predict = () => {
-      if (videoRef.current && landmarker && isModelLoaded.current) {
-        
-        // Only run if video is actually playing and has size
-        if (videoRef.current.currentTime > 0 && videoRef.current.videoWidth > 0) {
-            
-            try {
-                const result = landmarker.detectForVideo(videoRef.current, performance.now());
+      if (!landmarkerRef.current || !videoRef.current) return;
 
-                if (result.landmarks.length > 0) {
-                    // console.log("🖐 Hand Found!"); // Uncomment to spam console with success
-                    const hand = result.landmarks[0];
-                    const handedness = result.handedness[0][0].categoryName as 'Left' | 'Right';
-                    const count = countFingers(hand, handedness);
-                    setFingerCount(count);
-                } else {
-                    // console.log("... Searching ..."); 
-                    setFingerCount(null);
-                }
-            } catch (e) {
-                console.warn("Detection glitch:", e);
-            }
-        }
+      // SAFETY CHECK: Only predict if video has valid data
+      if (videoRef.current.readyState >= 2 && videoRef.current.videoWidth > 0) {
+         try {
+             const result = landmarkerRef.current.detectForVideo(videoRef.current, performance.now());
+
+             if (result.landmarks.length > 0) {
+                 const hand = result.landmarks[0];
+                 const count = countFingers(hand, result.handedness[0][0].categoryName as any);
+                 setFingerCount(count);
+
+                 // --- SHAKE LOGIC ---
+                 const wristX = hand[0].x;
+                 wristXHistory.current.push(wristX);
+                 if (wristXHistory.current.length > SHAKE_HISTORY_LENGTH) {
+                     wristXHistory.current.shift();
+                 }
+
+                 if (count === 0 && wristXHistory.current.length === SHAKE_HISTORY_LENGTH) {
+                     const minX = Math.min(...wristXHistory.current);
+                     const maxX = Math.max(...wristXHistory.current);
+                     if ((maxX - minX) > SHAKE_THRESHOLD) {
+                         setIsShaking(true);
+                     } else if ((maxX - minX) < SHAKE_THRESHOLD * 0.8) {
+                         setIsShaking(false);
+                     }
+                 } else {
+                     setIsShaking(false);
+                 }
+                 // -------------------
+
+             } else {
+                 setFingerCount(null);
+                 setIsShaking(false);
+                 wristXHistory.current = [];
+             }
+         } catch (e) {
+             console.warn("Frame dropped:", e);
+         }
       }
       requestRef.current = requestAnimationFrame(predict);
     };
@@ -114,9 +129,9 @@ export const useHandControl = () => {
 
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      if (landmarker) landmarker.close();
+      if (landmarkerRef.current) landmarkerRef.current.close();
     };
   }, []);
 
-  return { fingerCount, videoRef, isLoaded };
+  return { fingerCount, isShaking, videoRef, isLoaded };
 };
