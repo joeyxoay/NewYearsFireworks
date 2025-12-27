@@ -4,16 +4,20 @@ import { PerspectiveCamera, Environment, OrbitControls, Stars } from '@react-thr
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
+// Import your components
 import { useHandControl } from './hooks/useHandControl';
 import { WebcamFeed } from './components/WebcamFeed';
 import { Hologram } from './components/Hologram';
+import { Fireworks } from './components/Fireworks'; // <--- 1. Import this
 
 export default function App() {
   const { fingerCount, videoRef, isLoaded } = useHandControl();
 
-  // Helper text logic
+  // 2. Define the trigger (Open Hand = 5)
+  const isFireworks = fingerCount === 5;
+
   let status = "SHOW HAND";
-  if (fingerCount === 5) status = "✨ FIREWORKS ✨";
+  if (fingerCount === 5) status = "✨ FIREWORKS SHOW ✨";
   if (fingerCount === 3) status = "COUNT: 3";
   if (fingerCount === 2) status = "COUNT: 2";
   if (fingerCount === 1) status = "COUNT: 1";
@@ -24,18 +28,20 @@ export default function App() {
       <Canvas gl={{ toneMapping: THREE.ReinhardToneMapping, antialias: false }} dpr={[1, 2]}>
         <PerspectiveCamera makeDefault position={[0, 0, 25]} fov={50} />
         
-        {/* Dark Cinematic Atmosphere */}
         <color attach="background" args={['#000']} />
         <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
         <Environment preset="city" />
 
-        {/* The Main Hologram */}
+        {/* The Hologram (Handles numbers 1, 2, 3) */}
         <Suspense fallback={null}>
            <Hologram fingerCount={fingerCount} />
         </Suspense>
 
+        {/* 3. Add the Fireworks Component here */}
+        {/* It handles the "Show" types internally, we just turn it on */}
+        <Fireworks active={isFireworks} />
+
         <EffectComposer disableNormalPass>
-           {/* Purple/Pink Bloom to match the reference */}
            <Bloom luminanceThreshold={0.1} mipmapBlur intensity={2.0} radius={0.5} />
         </EffectComposer>
 

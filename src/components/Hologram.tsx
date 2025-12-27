@@ -7,40 +7,32 @@ import * as THREE from 'three';
 const PARTICLE_COUNT = 15000;
 const SPHERE_RADIUS = 6;
 
-// --- SHADER (Same as before) ---
+// --- SHADER (Modified for Fading instead of Exploding) ---
 const HologramMaterial = shaderMaterial(
   {
     uTime: 0,
     uColor1: new THREE.Color('#8a2be2'), // Purple
     uColor2: new THREE.Color('#00ffff'), // Cyan
     uMorphTarget: 0, 
-    uExplode: 0,     
+    uOpacity: 1.0, // <--- Controls visibility
   },
+  // Vertex Shader
   `
     uniform float uTime;
     uniform float uMorphTarget;
-    uniform float uExplode;
     
     attribute vec3 aSpherePos;
     attribute vec3 aCurrentTextTarget; 
 
     varying float vDepth;
 
-    float random(vec2 st) {
-        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
-    }
-
     void main() {
       // Morph between Sphere and Text
       vec3 pos = mix(aSpherePos, aCurrentTextTarget, uMorphTarget);
 
-      // Explosion Logic
+      // Subtle breathing animation (always active)
       vec3 dir = normalize(aSpherePos); 
-      if (uExplode > 0.5) {
-          pos += dir * (sin(uTime * 5.0 + random(pos.xy)) * 2.0 + 1.0) * uExplode;
-      } else {
-          pos += dir * sin(uTime + pos.y) * 0.1; 
-      }
+      pos += dir * sin(uTime + pos.y) * 0.1; 
 
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
       gl_Position = projectionMatrix * mvPosition;
@@ -49,16 +41,21 @@ const HologramMaterial = shaderMaterial(
       vDepth = -mvPosition.z;
     }
   `,
+  // Fragment Shader
   `
     uniform vec3 uColor1;
     uniform vec3 uColor2;
+    uniform float uOpacity; // <--- Fade control
     varying float vDepth;
 
     void main() {
       float r = distance(gl_PointCoord, vec2(0.5));
       if (r > 0.5) discard;
+      
       vec3 color = mix(uColor1, uColor2, smoothstep(10.0, 30.0, vDepth));
-      gl_FragColor = vec4(color, 1.0);
+      
+      // Apply the fade
+      gl_FragColor = vec4(color, uOpacity);
     }
   `
 );
@@ -66,7 +63,7 @@ const HologramMaterial = shaderMaterial(
 extend({ HologramMaterial });
 
 // --- MATH HELPER: Generate Points from Canvas Text ---
-// This replaces the need for a font file.
+// This is the version you liked!
 const generateTextPoints = (text: string) => {
   const size = 128; // Canvas resolution
   const canvas = document.createElement('canvas');
@@ -133,7 +130,7 @@ export const Hologram = ({ fingerCount }: { fingerCount: number | null }) => {
   const materialRef = useRef<any>(null);
   const geometryRef = useRef<THREE.BufferGeometry>(null);
   
-  // Generate shapes on load (No external files needed!)
+  // Generate shapes on load using the Canvas method
   const [spherePos, text3Pos, text2Pos, text1Pos] = useMemo(() => {
     return [
       sampleSphere(),
@@ -150,13 +147,14 @@ export const Hologram = ({ fingerCount }: { fingerCount: number | null }) => {
 
     let targetBuffer = spherePos;
     let morphLevel = 0;
-    let explodeLevel = 0;
+    let opacityTarget = 1.0;
 
-    // Logic Map
+    // --- LOGIC MAP ---
     if (fingerCount === 5) {
+        // FADE OUT (Fireworks take over)
         targetBuffer = spherePos;
         morphLevel = 0; 
-        explodeLevel = 2.0; // Explosion
+        opacityTarget = 0.0; 
     } else if (fingerCount === 3) {
         targetBuffer = text3Pos;
         morphLevel = 1;
@@ -167,13 +165,16 @@ export const Hologram = ({ fingerCount }: { fingerCount: number | null }) => {
         targetBuffer = text1Pos;
         morphLevel = 1;
     } else {
+        // Idle Sphere
         targetBuffer = spherePos;
         morphLevel = 0;
     }
 
+    // Smooth Interpolation
     materialRef.current.uMorphTarget = THREE.MathUtils.lerp(materialRef.current.uMorphTarget, morphLevel, delta * 3);
-    materialRef.current.uExplode = THREE.MathUtils.lerp(materialRef.current.uExplode, explodeLevel, delta * 2);
+    materialRef.current.uOpacity = THREE.MathUtils.lerp(materialRef.current.uOpacity, opacityTarget, delta * 5);
 
+    // Update geometry only if morphing to text
     if (morphLevel > 0.01) {
        geometryRef.current.attributes.aCurrentTextTarget.needsUpdate = true;
        const array = geometryRef.current.attributes.aCurrentTextTarget.array as Float32Array;
